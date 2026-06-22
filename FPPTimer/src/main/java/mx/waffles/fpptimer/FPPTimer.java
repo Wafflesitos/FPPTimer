@@ -6,10 +6,10 @@ public class FPPTimer extends JavaPlugin {
 
     @Override
     public void onEnable() {
-        BotTempCommand cmd = new BotTempCommand(this);
-        getCommand("bottemp").setExecutor(cmd);
-        getCommand("bottemp").setTabCompleter(cmd);
-        getLogger().info("FPPTimer activado correctamente.");
+        BotDespawnCommand cmd = new BotDespawnCommand(this);
+        getCommand("botdespawn").setExecutor(cmd);
+        getCommand("botdespawn").setTabCompleter(cmd);
+        getLogger().info("FPPTimer activado.");
     }
 
     @Override
