@@ -8,132 +8,119 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.util.*;
 
-public class BotTempCommand implements CommandExecutor, TabCompleter {
+public class BotDespawnCommand implements CommandExecutor, TabCompleter {
 
     private final FPPTimer plugin;
-    private final Map<UUID, BukkitTask> timers = new HashMap<>();
+    private final Map<String, BukkitTask> timers = new HashMap<>();
 
-    public BotTempCommand(FPPTimer plugin) {
+    public BotDespawnCommand(FPPTimer plugin) {
         this.plugin = plugin;
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
 
-        if (!(sender instanceof Player player)) {
-            // Soporte desde consola también
-            sender.sendMessage("[FPPTimer] Solo jugadores pueden usar /bottemp.");
+        // /botdespawn <nombre|all> <tiempo|cancel>
+        // Ejemplos:
+        //   /botdespawn GranjaDeMobs 30m
+        //   /botdespawn all 8h
+        //   /botdespawn GranjaDeMobs cancel
+
+        if (args.length < 2) {
+            sendHelp(sender);
             return true;
         }
 
-        UUID uid = player.getUniqueId();
+        String botName = args[0];
+        String tiempoArg = args[1];
 
-        // /bottemp cancel
-        if (args.length == 1 && args[0].equalsIgnoreCase("cancel")) {
-            if (timers.containsKey(uid)) {
-                timers.get(uid).cancel();
-                timers.remove(uid);
-                despawnAll();
-                player.sendMessage(ChatColor.RED + "✖ Timer cancelado. Bots eliminados.");
+        // Cancelar timer
+        if (tiempoArg.equalsIgnoreCase("cancel")) {
+            if (timers.containsKey(botName)) {
+                timers.get(botName).cancel();
+                timers.remove(botName);
+                sender.sendMessage(ChatColor.RED + "✖ Timer de " + botName + " cancelado.");
             } else {
-                player.sendMessage(ChatColor.GRAY + "No tienes un timer activo.");
+                sender.sendMessage(ChatColor.GRAY + "No hay timer activo para " + botName + ".");
             }
             return true;
         }
 
-        // /bottemp <minutos> [cantidad]
-        if (args.length < 1) {
-            sendHelp(player);
+        // Parsear tiempo (1m, 30m, 2h, 8h, etc.)
+        long ticks = parseTiempo(tiempoArg);
+        if (ticks <= 0) {
+            sender.sendMessage(ChatColor.RED + "Tiempo inválido. Usa formato: 30m, 2h, 8h, 1m, etc.");
             return true;
         }
 
-        int minutos;
-        try {
-            minutos = Integer.parseInt(args[0]);
-            if (minutos < 1 || minutos > 1440) {
-                player.sendMessage(ChatColor.RED + "Los minutos deben estar entre 1 y 1440 (24h).");
-                return true;
-            }
-        } catch (NumberFormatException e) {
-            sendHelp(player);
-            return true;
+        // Cancelar timer previo si existe para ese bot
+        if (timers.containsKey(botName)) {
+            timers.get(botName).cancel();
+            timers.remove(botName);
+            sender.sendMessage(ChatColor.GRAY + "Timer anterior de " + botName + " cancelado.");
         }
 
-        int cantidad = 1;
-        if (args.length >= 2) {
-            try {
-                cantidad = Integer.parseInt(args[1]);
-                if (cantidad < 1 || cantidad > 20) {
-                    player.sendMessage(ChatColor.RED + "La cantidad debe estar entre 1 y 20.");
-                    return true;
-                }
-            } catch (NumberFormatException e) {
-                player.sendMessage(ChatColor.RED + "Cantidad inválida. Usa un número entre 1 y 20.");
-                return true;
-            }
-        }
+        String tiempoStr = formatTiempo(tiempoArg);
+        sender.sendMessage(ChatColor.GREEN + "⏱ " + ChatColor.WHITE + botName
+                + ChatColor.GREEN + " se despawneará en " + ChatColor.YELLOW + tiempoStr + ChatColor.GREEN + ".");
 
-        // Cancelar timer previo si existe
-        if (timers.containsKey(uid)) {
-            timers.get(uid).cancel();
-            timers.remove(uid);
-            despawnAll();
-            player.sendMessage(ChatColor.GRAY + "Timer anterior cancelado. Spawneando nuevos bots...");
-        }
-
-        // Spawnear bots
-        final int finalCantidad = cantidad;
-        if (cantidad == 1) {
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "fpp spawn");
-        } else {
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "fpp spawn " + cantidad);
-        }
-
-        // Formatear tiempo para el mensaje
-        String tiempoStr = minutos == 1 ? "1 minuto" : minutos + " minutos";
-
-        player.sendMessage(ChatColor.GREEN + "✔ " + finalCantidad + " bot(s) spawneado(s).");
-        player.sendMessage(ChatColor.YELLOW + "⏱ Se eliminarán automáticamente en " + ChatColor.WHITE + tiempoStr + ChatColor.YELLOW + ".");
-        player.sendMessage(ChatColor.GRAY + "Usa /bottemp cancel para eliminarlos ahora.");
-
-        // Programar despawn
-        long ticks = (long) minutos * 60L * 20L;
         BukkitTask task = Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            timers.remove(uid);
-            despawnAll();
-            Player online = Bukkit.getPlayer(uid);
-            if (online != null && online.isOnline()) {
-                online.sendMessage(ChatColor.RED + "⏱ Tiempo cumplido (" + tiempoStr + "). "
-                        + finalCantidad + " bot(s) eliminados.");
-            }
+            timers.remove(botName);
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "fpp despawn " + botName);
+            // Notificar a todos los ops
+            Bukkit.getOnlinePlayers().forEach(p -> {
+                if (p.isOp()) {
+                    p.sendMessage(ChatColor.RED + "⏱ [FPPTimer] Bot " + ChatColor.WHITE + botName
+                            + ChatColor.RED + " despawneado después de " + tiempoStr + ".");
+                }
+            });
         }, ticks);
 
-        timers.put(uid, task);
+        timers.put(botName, task);
         return true;
     }
 
-    private void despawnAll() {
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "fpp despawn all");
+    private long parseTiempo(String input) {
+        try {
+            if (input.endsWith("m")) {
+                int minutos = Integer.parseInt(input.replace("m", ""));
+                return (long) minutos * 60 * 20;
+            } else if (input.endsWith("h")) {
+                int horas = Integer.parseInt(input.replace("h", ""));
+                return (long) horas * 60 * 60 * 20;
+            } else if (input.endsWith("s")) {
+                int segundos = Integer.parseInt(input.replace("s", ""));
+                return (long) segundos * 20;
+            }
+        } catch (NumberFormatException ignored) {}
+        return -1;
     }
 
-    private void sendHelp(Player player) {
-        player.sendMessage(ChatColor.GOLD + "━━━ FPPTimer ━━━");
-        player.sendMessage(ChatColor.YELLOW + "/bottemp <minutos> [cantidad]");
-        player.sendMessage(ChatColor.GRAY + "  Spawnea bots que se auto-eliminan.");
-        player.sendMessage(ChatColor.YELLOW + "/bottemp cancel");
-        player.sendMessage(ChatColor.GRAY + "  Cancela el timer y elimina los bots ya.");
-        player.sendMessage(ChatColor.GOLD + "Ejemplos:");
-        player.sendMessage(ChatColor.WHITE + "  /bottemp 10      " + ChatColor.GRAY + "→ 1 bot por 10 min");
-        player.sendMessage(ChatColor.WHITE + "  /bottemp 30 5    " + ChatColor.GRAY + "→ 5 bots por 30 min");
+    private String formatTiempo(String input) {
+        if (input.endsWith("m")) return input.replace("m", "") + " minuto(s)";
+        if (input.endsWith("h")) return input.replace("h", "") + " hora(s)";
+        if (input.endsWith("s")) return input.replace("s", "") + " segundo(s)";
+        return input;
+    }
+
+    private void sendHelp(CommandSender sender) {
+        sender.sendMessage(ChatColor.GOLD + "━━━ FPPTimer ━━━");
+        sender.sendMessage(ChatColor.YELLOW + "/botdespawn <nombre|all> <tiempo>");
+        sender.sendMessage(ChatColor.YELLOW + "/botdespawn <nombre|all> cancel");
+        sender.sendMessage(ChatColor.GOLD + "Ejemplos:");
+        sender.sendMessage(ChatColor.WHITE + "  /botdespawn GranjaDeMobs 30m");
+        sender.sendMessage(ChatColor.WHITE + "  /botdespawn all 8h");
+        sender.sendMessage(ChatColor.WHITE + "  /botdespawn GranjaDeMobs cancel");
+        sender.sendMessage(ChatColor.GRAY + "Tiempos: 30s · 10m · 2h");
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return Arrays.asList("5", "10", "15", "30", "60", "cancel");
+            return Arrays.asList("all", "GranjaDeMobs", "MiBotAFK");
         }
-        if (args.length == 2 && !args[0].equalsIgnoreCase("cancel")) {
-            return Arrays.asList("1", "2", "3", "5", "10");
+        if (args.length == 2) {
+            return Arrays.asList("30s", "1m", "10m", "30m", "1h", "8h", "cancel");
         }
         return Collections.emptyList();
     }
