@@ -1,0 +1,20 @@
+name: FPPTimer
+version: 1.0.0
+main: mx.waffles.fpptimer.FPPTimer
+api-version: "1.21"
+author: Waffles
+description: Spawnea bots de FPP que se auto-eliminan despues de X minutos.
+depend:
+  - FakePlayerPlugin
+
+commands:
+  bottemp:
+    description: Spawnea bots temporales con auto-despawn.
+    usage: /bottemp <minutos> [cantidad] | /bottemp cancel
+    permission: fpptimer.use
+    aliases: [bt]
+
+permissions:
+  fpptimer.use:
+    description: Permite usar /bottemp
+    default: op
